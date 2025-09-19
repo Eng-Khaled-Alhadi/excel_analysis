@@ -1,11 +1,18 @@
 import 'dart:io';
 
 import 'package:excel/excel.dart';
-import 'package:excel_file/CustomData.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
-void main() {
+import 'ExcelData.dart';
+
+const int hourRowIndex = 2;
+const int dateRowIndex = 1;
+const int nameColumnIndex = 0;
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('ar');
   runApp(const MainApp());
 }
 
@@ -27,9 +34,8 @@ class MainApp extends StatelessWidget {
                 textColor: Colors.white,
 
                 onPressed: getData,
-              child: Text('open'),
-
-              )
+                child: Text('open'),
+              ),
             ],
           ),
         ),
@@ -37,94 +43,104 @@ class MainApp extends StatelessWidget {
     );
   }
 
-  getData()async{
+  getData() async {
     Excel excel = Excel.decodeBytes(File('./table.xlsx').readAsBytesSync());
     final sheet = excel.tables.values.first;
-    final rows = [...sheet.rows];
 
-    final hourRowIndex = 2;
-    final dateRowIndex = 1;
-    String branchName = '';
+    final List<ExcelData> data = [];
+    String branchName = "";
 
-    for(int rowIndex =0 ; rowIndex < sheet.maxRows;rowIndex++){
-      String r = "";
-      for(int columnIndex=0 ;columnIndex < sheet.maxColumns;columnIndex++){
-        final data = sheet.cell(CellIndex.indexByColumnRow(columnIndex: columnIndex, rowIndex: rowIndex));
-        if (data.asText.startsWith('فرع') ?? false) {
+    for (int rowIndex = 5; rowIndex < sheet.maxRows; rowIndex++) {
+      final customData = ExcelData(rowIndex);
+      DateTime? date;
+
+      for (int columnIndex = 0; columnIndex < sheet.maxColumns; columnIndex++) {
+        final data = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: columnIndex,
+            rowIndex: rowIndex,
+          ),
+        );
+
+        final dateCell = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: columnIndex,
+            rowIndex: dateRowIndex,
+          ),
+        );
+
+        final hourCell = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: columnIndex,
+            rowIndex: hourRowIndex,
+          ),
+        );
+
+        if (dateCell.asDateTime != null) {
+          date = dateCell.asDateTime;
+        }
+
+        if (data.asText.startsWith('فرع')) {
           branchName = data.asText;
           continue;
-        }
-
-        if(branchName.isEmpty){
+        } else if (columnIndex == nameColumnIndex) {
+          customData.name = data.asText;
           continue;
         }
 
-        r += "${data.asInt ?? data.asText}, ";
-        if(data.asText.length > 3){
-          final $category = getCategory(data.asText);
-          if ($category!=null) {
-            print("Category: ${$category}");
-            print("Quantity: ${getTotalQuantity(data.asText, data.asInt)}");
-          }
+        if (branchName.isEmpty || (customData.name?.isEmpty ?? true)) {
+          continue;
         }
 
+        if (hourCell.asInt != null && data.asInt != null) {
+          customData.branchName = branchName;
+          customData.quantityByHourAtDateList[date] ??= {};
+          customData.quantityByHourAtDateList[date]![hourCell.asInt!] =
+              data.asInt!;
+        }
       }
-      print(r);
+
+      data.add(customData);
     }
+
+    SaveExcelData(data).saveExcel();
   }
-
-  String? getCategory(String product){
-    Map<String, List<String>> categories = {
-      'الدجاج الباربكيو': ['[C-012] نص حبة دجاج - BBQ', '[C-013] (نص حبة دجاج - BBQ)', '[C-014] وليمة دجاج - BBQ', '[C-015] (وليمة دجاج - BBQ)'],
-      'الدجاج الشواية': ['[1] (نص شواية مجيد) (الأرز المندي)', '[1] (نص شواية مجيد) (الأرز الشعبي)', '[1] (نص شواية مجيد) (الارز الأمريكي)', '[2] (حبة شواية مجيد) (الأرز المندي)', '[2] (حبة شواية مجيد) (الأرز الشعبي)', '[2] (حبة شواية مجيد) (الارز الأمريكي)', '[2] (وليمة شواية مجيد) (الأرز المندي)', '[2] (وليمة شواية مجيد) (الأرز الشعبي)', '[2] (وليمة شواية مجيد) (الارز الأمريكي)', '[C-012] وليمة شواية مجيد (الأرز المندي)', '[C-012] وليمة شواية مجيد (الأرز الشعبي)', '[C-012] وليمة شواية مجيد (الارز الأمريكي)', 'حبة شواية مجيد (الأرز المندي)', 'حبة شواية مجيد (الأرز الشعبي)', 'حبة شواية مجيد (الارز الأمريكي)', 'نص حبة شواية (الأرز المندي)', 'نص حبة شواية (الأرز الشعبي)', 'نص حبة شواية (الارز الأمريكي)'],
-      'الدجاج المندي': ['[2] (حبة دجاج مندي) (الأرز المندي)', '[2] (حبة دجاج مندي) (الأرز الشعبي)', '[2] (حبة دجاج مندي) (الارز الأمريكي)', '[2] (نص حبه دجاج مندي) (الأرز المندي)', '[2] (نص حبه دجاج مندي) (الأرز الشعبي)', '[2] (نص حبه دجاج مندي) (الارز الأمريكي)', '[2] (نص حبه دجاج مندي+ جريش) (الأرز المندي)', '[2] (نص حبه دجاج مندي+ جريش) (الأرز الشعبي)', '[2] (نص حبه دجاج مندي+ جريش) (الارز الأمريكي)', '[2] (وليمة دجاج مندي) (الأرز المندي)', '[2] (وليمة دجاج مندي) (الأرز الشعبي)', '[2] (وليمة دجاج مندي) (الارز الأمريكي)', 'حبة دجاج مندي (الأرز المندي)', 'حبة دجاج مندي (الأرز الشعبي)', 'حبة دجاج مندي (الارز الأمريكي)', 'نص حبه دجاج مندي (الأرز المندي)', 'نص حبه دجاج مندي (الأرز الشعبي)', 'نص حبه دجاج مندي (الارز الأمريكي)', 'وليمة دجاج مندي (الأرز المندي)', 'وليمة دجاج مندي (الأرز الشعبي)'],
-      'اللحم الزبدة': ['[1] (نفر مندي زبدة) (الأرز المندي)', '[1] (نفر مندي زبدة) (الأرز الشعبي)', '[1] (نفر مندي زبدة) (الارز الأمريكي)', '[1] (نفرين مندي زبدة) (الأرز المندي)', '[1] (نفرين مندي زبدة) (الأرز الشعبي)', '[1] (نفرين مندي زبدة) (الارز الأمريكي)', '[1] (وليمة مندي زبدة ) (الأرز المندي)', '[1] (وليمة مندي زبدة ) (الأرز الشعبي)', '[1] (وليمة مندي زبدة ) (الارز الأمريكي)', '[A-054] نفر لحم - BBQ', '[A-055] (نفر لحم - BBQ)', '[A-056] وليمة لحم - BBQ', '[A-057] (وليمة لحم - BBQ)', 'نفر مندي زبدة (الأرز المندي)', 'نفر مندي زبدة (الأرز الشعبي)', 'نفر مندي زبدة (الارز الأمريكي)', 'نفرين مندي زبدة (الأرز المندي)', 'نفرين مندي زبدة (الأرز الشعبي)', 'نفرين مندي زبدة (الارز الأمريكي)', 'وليمة مندي زبدة (الأرز المندي)', 'وليمة مندي زبدة (الأرز الشعبي)', 'وليمة مندي زبدة (الارز الأمريكي)'],
-      'اللحم المندي': ['[1] (نفر مندي لحم) (الأرز المندي)', '[1] (نفر مندي لحم) (الأرز الشعبي)', '[1] (نفر مندي لحم) (الارز الأمريكي)', '[1] (نفرين مندي لحم) (الأرز المندي)', '[1] (نفرين مندي لحم) (الأرز الشعبي)', '[1] (نفرين مندي لحم) (الارز الأمريكي)', '[1] (وليمة لحم مندي) (الأرز المندي)', '[1] (وليمة لحم مندي) (الأرز الشعبي)', '[1] (وليمة لحم مندي) (الارز الأمريكي)', 'نفر مندي لحم (الأرز المندي)', 'نفر مندي لحم (الأرز الشعبي)', 'نفر مندي لحم (الارز الأمريكي)', 'نفرين مندي لحم (الأرز المندي)', 'نفرين مندي لحم (الأرز الشعبي)', 'نفرين مندي لحم (الارز الأمريكي)', 'وليمة لحم مندي (الأرز المندي)', 'وليمة لحم مندي (الأرز الشعبي)', 'وليمة لحم مندي (الارز الأمريكي)']
-    };
-    for (var entry in categories.entries) {
-      if (entry.value.contains(product)) {
-        return entry.key;
-      }
-    }
-  }
-
-  double getTotalQuantity(String product, int? quantity){
-    Map<double, List<String>> parts = {
-      0.5: ['[C-012] نص حبة دجاج - BBQ', '[C-013] (نص حبة دجاج - BBQ)', '[1] (نص شواية مجيد) (الأرز المندي)', '[1] (نص شواية مجيد) (الأرز الشعبي)', '[1] (نص شواية مجيد) (الارز الأمريكي)', 'نص حبة شواية (الأرز المندي)', 'نص حبة شواية (الأرز الشعبي)', 'نص حبة شواية (الارز الأمريكي)', '[2] (نص حبه دجاج مندي) (الأرز المندي)', '[2] (نص حبه دجاج مندي) (الأرز الشعبي)', '[2] (نص حبه دجاج مندي) (الارز الأمريكي)', '[2] (نص حبه دجاج مندي+ جريش) (الأرز المندي)', '[2] (نص حبه دجاج مندي+ جريش) (الأرز الشعبي)', '[2] (نص حبه دجاج مندي+ جريش) (الارز الأمريكي)', 'نص حبه دجاج مندي (الأرز المندي)', 'نص حبه دجاج مندي (الأرز الشعبي)', 'نص حبه دجاج مندي (الارز الأمريكي)'],
-      1:['[2] (حبة شواية مجيد) (الأرز المندي)', '[2] (حبة شواية مجيد) (الأرز الشعبي)', '[2] (حبة شواية مجيد) (الارز الأمريكي)', 'حبة شواية مجيد (الأرز المندي)', 'حبة شواية مجيد (الأرز الشعبي)', 'حبة شواية مجيد (الارز الأمريكي)', '[2] (حبة دجاج مندي) (الأرز المندي)', '[2] (حبة دجاج مندي) (الأرز الشعبي)', '[2] (حبة دجاج مندي) (الارز الأمريكي)', 'حبة دجاج مندي (الأرز المندي)', 'حبة دجاج مندي (الأرز الشعبي)', 'حبة دجاج مندي (الارز الأمريكي)', '[1] (نفر مندي زبدة) (الأرز المندي)', '[1] (نفر مندي زبدة) (الأرز الشعبي)', '[1] (نفر مندي زبدة) (الارز الأمريكي)', '[A-054] نفر لحم - BBQ', '[A-055] (نفر لحم - BBQ)', 'نفر مندي زبدة (الأرز المندي)', 'نفر مندي زبدة (الأرز الشعبي)', 'نفر مندي زبدة (الارز الأمريكي)', '[1] (نفر مندي لحم) (الأرز المندي)', '[1] (نفر مندي لحم) (الأرز الشعبي)', '[1] (نفر مندي لحم) (الارز الأمريكي)', 'نفر مندي لحم (الأرز المندي)', 'نفر مندي لحم (الأرز الشعبي)', 'نفر مندي لحم (الارز الأمريكي)'],
-      2: ['[C-014] وليمة دجاج - BBQ', '[C-015] (وليمة دجاج - BBQ)', '[2] (وليمة شواية مجيد) (الأرز المندي)', '[2] (وليمة شواية مجيد) (الأرز الشعبي)', '[2] (وليمة شواية مجيد) (الارز الأمريكي)', '[C-012] وليمة شواية مجيد (الأرز المندي)', '[C-012] وليمة شواية مجيد (الأرز الشعبي)', '[C-012] وليمة شواية مجيد (الارز الأمريكي)', '[2] (وليمة دجاج مندي) (الأرز المندي)', '[2] (وليمة دجاج مندي) (الأرز الشعبي)', '[2] (وليمة دجاج مندي) (الارز الأمريكي)', 'وليمة دجاج مندي (الأرز المندي)', 'وليمة دجاج مندي (الأرز الشعبي)', '[1] (نفرين مندي زبدة) (الأرز المندي)', '[1] (نفرين مندي زبدة) (الأرز الشعبي)', '[1] (نفرين مندي زبدة) (الارز الأمريكي)', 'نفرين مندي زبدة (الأرز المندي)', 'نفرين مندي زبدة (الأرز الشعبي)', 'نفرين مندي زبدة (الارز الأمريكي)', '[1] (نفرين مندي لحم) (الأرز المندي)', '[1] (نفرين مندي لحم) (الأرز الشعبي)', '[1] (نفرين مندي لحم) (الارز الأمريكي)', 'نفرين مندي لحم (الأرز المندي)', 'نفرين مندي لحم (الأرز الشعبي)', 'نفرين مندي لحم (الارز الأمريكي)'],
-      4:['[1] (وليمة مندي زبدة ) (الأرز المندي)', '[1] (وليمة مندي زبدة ) (الأرز الشعبي)', '[1] (وليمة مندي زبدة ) (الارز الأمريكي)', '[A-056] وليمة لحم - BBQ', '[A-057] (وليمة لحم - BBQ)', 'وليمة مندي زبدة (الأرز المندي)', 'وليمة مندي زبدة (الأرز الشعبي)', 'وليمة مندي زبدة (الارز الأمريكي)', '[1] (وليمة لحم مندي) (الأرز المندي)', '[1] (وليمة لحم مندي) (الأرز الشعبي)', '[1] (وليمة لحم مندي) (الارز الأمريكي)', 'وليمة لحم مندي (الأرز المندي)', 'وليمة لحم مندي (الأرز الشعبي)', 'وليمة لحم مندي (الارز الأمريكي)']
-    };
-
-    for(var prod in parts.entries){
-      if(prod.value.contains(product)){
-        return prod.key * (quantity??0);
-      }
-    }
-    return 0;
-  }
-
-
-
 }
 
-extension on Data{
-  String get asText{
+extension on Data {
+  String get asText {
     String val = '';
-    if(!isEmpty ){
+    if (!isEmpty) {
       val = value.toString().trim();
     }
     return val;
   }
 
-  int? get asInt{
+  int? get asInt {
     int? val;
-    if(value is IntCellValue?){
+    if (value is IntCellValue?) {
       val = (value as IntCellValue?)?.value;
     }
-    return  val;
+    return val;
   }
 
   bool get isEmpty => value == null || value.toString().isEmpty;
 
+  DateTime? get asDateTime {
+    DateTime? val;
+    if (value is DateTimeCellValue) {
+      val = (value as DateTimeCellValue).asDateTimeLocal();
+    } else {
+      val = _getDate(asText);
+    }
+    return val;
+  }
+
+  DateTime? _getDate(String date) {
+    try {
+      return DateFormat('dd MMMM yyyy', 'ar').tryParse(date);
+    } catch (e) {
+      return null;
+    }
+  }
 }
