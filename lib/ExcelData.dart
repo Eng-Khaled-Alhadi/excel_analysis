@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:excel/excel.dart';
 import 'package:excel_file/const.dart';
+import 'package:excel_file/main.dart';
 
 class ExcelData {
   int rowIndex;
@@ -28,12 +29,15 @@ class SaveExcelData {
 
   SaveExcelData(this.list);
 
-  void saveExcel() {
+  void saveExcel() async {
     final outFile = File('./output.xlsx');
+    progress.value = 0;
 
     Excel excel = Excel.decodeBytes(
-      File('./table_save.xlsx').readAsBytesSync(),
+      await File('./table_save.xlsx').readAsBytes(),
     );
+
+    progress.value = 0.2;
 
     final sheet = excel.tables.values.first;
 
@@ -56,6 +60,8 @@ class SaveExcelData {
     }
 
     final bytes = excel.encode();
-    outFile.writeAsBytesSync(bytes!);
+    progress.value = 0.6;
+    await outFile.writeAsBytes(bytes!);
+    progress.value = 1;
   }
 }

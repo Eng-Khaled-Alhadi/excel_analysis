@@ -10,6 +10,8 @@ import 'ExcelData.dart';
 const int hourRowIndex = 2;
 const int dateRowIndex = 1;
 const int nameColumnIndex = 0;
+
+ValueNotifier<double?> progress = ValueNotifier(null);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ar');
@@ -21,7 +23,6 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    getData();
     return MaterialApp(
       home: Scaffold(
         body: Center(
@@ -36,6 +37,23 @@ class MainApp extends StatelessWidget {
                 onPressed: getData,
                 child: Text('open'),
               ),
+              SizedBox(height: 16),
+              ValueListenableBuilder(
+                valueListenable: progress,
+                builder: (context, value, child) {
+                  return SizedBox(
+                    width: 300,
+                    child: Column(
+                      children: [
+                        LinearProgressIndicator(value: value),
+                        Text(
+                          "${value == null ? "--" : (value * 100).toStringAsFixed(2)}%",
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -43,9 +61,13 @@ class MainApp extends StatelessWidget {
     );
   }
 
-  getData() async {
-    Excel excel = Excel.decodeBytes(File('./table.xlsx').readAsBytesSync());
+  Future<void> getData() async {
+    Excel excel = Excel.decodeBytes(await File('./table.xlsx').readAsBytes());
     final sheet = excel.tables.values.first;
+    progress.value = 0;
+    final maxRows = sheet.maxRows;
+    final maxColumns = sheet.maxColumns;
+    final totalProgress = maxRows * maxColumns;
 
     final List<ExcelData> data = [];
     String branchName = "";
@@ -53,7 +75,7 @@ class MainApp extends StatelessWidget {
     for (int rowIndex = 5; rowIndex < sheet.maxRows; rowIndex++) {
       final customData = ExcelData(rowIndex);
       DateTime? date;
-
+      progress.value = progress.value! + 1;
       for (int columnIndex = 0; columnIndex < sheet.maxColumns; columnIndex++) {
         final data = sheet.cell(
           CellIndex.indexByColumnRow(
@@ -99,6 +121,7 @@ class MainApp extends StatelessWidget {
               data.asInt!;
         }
       }
+      progress.value = progress.value! + 1;
 
       data.add(customData);
     }
