@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:excel/excel.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -62,20 +63,26 @@ class MainApp extends StatelessWidget {
   }
 
   Future<void> getData() async {
-    Excel excel = Excel.decodeBytes(await File('./table.xlsx').readAsBytes());
+    progress.value = null;
+    final xFile = await FilePicker.platform.pickFiles();
+
+    Excel excel = Excel.decodeBytes(
+      await (xFile?.xFiles.single.readAsBytes() ??
+          File('./table.xlsx').readAsBytes()),
+    );
     final sheet = excel.tables.values.first;
     progress.value = 0;
     final maxRows = sheet.maxRows;
     final maxColumns = sheet.maxColumns;
-    final totalProgress = maxRows * maxColumns;
 
     final List<ExcelData> data = [];
     String branchName = "";
-
+    int _progress = 0;
     for (int rowIndex = 5; rowIndex < sheet.maxRows; rowIndex++) {
       final customData = ExcelData(rowIndex);
       DateTime? date;
-      progress.value = progress.value! + 1;
+      progress.value = (_progress++) / maxRows;
+      await Future.delayed(const Duration(microseconds: 1));
       for (int columnIndex = 0; columnIndex < sheet.maxColumns; columnIndex++) {
         final data = sheet.cell(
           CellIndex.indexByColumnRow(
@@ -121,7 +128,6 @@ class MainApp extends StatelessWidget {
               data.asInt!;
         }
       }
-      progress.value = progress.value! + 1;
 
       data.add(customData);
     }
