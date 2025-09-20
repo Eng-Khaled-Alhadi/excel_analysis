@@ -17,7 +17,7 @@ class ExcelData {
 
   // int get total => (quantity ?? 0) * (parts ?? 1);
 
-  String get category => getCategory(name ?? '') ?? 'غير محدد';
+  String? get category => getCategory(name ?? '');
 
   @override
   String toString() {
@@ -55,15 +55,23 @@ class SaveExcelData {
     for (var data in list) {
       for (final dateMap in data.quantityByHourAtDateList.entries) {
         for (var hourQuantityMap in dateMap.value.entries) {
+          final totalQuantity = getTotalQuantity(
+            data.name!,
+            hourQuantityMap.value,
+          );
+          final category = data.category;
+          if (totalQuantity == null || category == null) {
+            continue;
+          }
           sheet.appendRow([
             TextCellValue(data.name ?? ''),
             TextCellValue(data.branchName ?? ''),
             DateCellValue.fromDateTime(dateMap.key!),
             IntCellValue(hourQuantityMap.key),
             IntCellValue(hourQuantityMap.value),
-            TextCellValue(data.category),
+            TextCellValue(data.category!),
             DoubleCellValue(
-              getTotalQuantity(data.name!, hourQuantityMap.value).toDouble(),
+              getTotalQuantity(data.name!, hourQuantityMap.value)!.toDouble(),
             ),
           ]);
           progress.value = (progressLocal++ / totalProgress);

@@ -102,7 +102,7 @@ String? getCategory(String product) {
       ?.key;
 }
 
-num getTotalQuantity(String product, int? quantity) {
+num? getTotalQuantity(String product, int quantity) {
   final count =
       {
             0.5: [
@@ -200,5 +200,5 @@ num getTotalQuantity(String product, int? quantity) {
           .firstWhereOrNull((element) => element.value.contains(product))
           ?.key;
 
-  return (count ?? 0) * (quantity ?? 0);
+  return count == null ? null : count * quantity;
 }
