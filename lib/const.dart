@@ -95,7 +95,6 @@ String? getCategory(String product) {
           'وليمة لحم مندي (الارز الأمريكي)',
         ],
       }.entries
-      .map((e) => MapEntry(e.key, e.value.map((ee) => ee.trim())))
       .firstWhereOrNull((element) {
         return element.value.contains(product);
       })
@@ -196,7 +195,6 @@ num? getTotalQuantity(String product, int quantity) {
               'وليمة لحم مندي (الارز الأمريكي)',
             ],
           }.entries
-          .map((e) => MapEntry(e.key, e.value.map((ee) => ee.trim())))
           .firstWhereOrNull((element) => element.value.contains(product))
           ?.key;
 

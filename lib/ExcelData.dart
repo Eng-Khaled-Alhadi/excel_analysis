@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:excel/excel.dart';
 import 'package:excel_file/const.dart';
 import 'package:excel_file/main.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:open_file/open_file.dart';
 
 class ExcelData {
@@ -35,7 +38,7 @@ class SaveExcelData {
     progress.value = null;
 
     Excel excel = Excel.decodeBytes(
-      await File('./table_save.xlsx').readAsBytes(),
+      (await rootBundle.load('assets/table_save.xlsx')).buffer.asUint8List(),
     );
 
     progress.value = 0.2;
@@ -52,6 +55,8 @@ class SaveExcelData {
           ),
     );
     int progressLocal = 0;
+
+
     for (var data in list) {
       for (final dateMap in data.quantityByHourAtDateList.entries) {
         for (var hourQuantityMap in dateMap.value.entries) {
@@ -64,12 +69,13 @@ class SaveExcelData {
             continue;
           }
           sheet.appendRow([
+            TextCellValue(data.category!),
             TextCellValue(data.name ?? ''),
             TextCellValue(data.branchName ?? ''),
+            TextCellValue(DateFormat('EEEE','ar').format(dateMap.key!)),
             DateCellValue.fromDateTime(dateMap.key!),
             IntCellValue(hourQuantityMap.key),
             IntCellValue(hourQuantityMap.value),
-            TextCellValue(data.category!),
             DoubleCellValue(
               getTotalQuantity(data.name!, hourQuantityMap.value)!.toDouble(),
             ),
@@ -81,14 +87,15 @@ class SaveExcelData {
     }
 
     progress.value = 1;
-    final bytes = excel.save();
-    await outFile.writeAsBytes(bytes!);
+    final bytes = excel.encode();
+    final path = await FilePicker.platform.saveFile(fileName: 'quantity_report.xlsx', bytes: Uint8List.fromList(bytes!));
+    // await outFile.writeAsBytes(bytes);
     await Future.delayed(const Duration(milliseconds: 300));
     progress.value = null;
-    await openFile(outFile);
+    await openFile(path!);
   }
 
-  Future openFile(File file) async {
-    await OpenFile.open(file.absolute.path);
+  Future openFile(String file) async {
+    await OpenFile.open(file);
   }
 }
