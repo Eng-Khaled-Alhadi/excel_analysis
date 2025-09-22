@@ -34,18 +34,22 @@ class SaveExcelData {
   SaveExcelData(this.list);
 
   void saveExcel() async {
-    // final outFile = File('./output.xlsx');
     progress.value = null;
 
     final outputFilePath = prefs.getString(outFilePath);
 
     Excel excel = Excel.decodeBytes(
-      outputFilePath != null ? await File(outputFilePath).readAsBytes() : (await rootBundle.load('assets/table_save.xlsx')).buffer.asUint8List(),
+      outputFilePath != null
+          ? await File(outputFilePath).readAsBytes()
+          : (await rootBundle.load(
+              'assets/table_save.xlsx',
+            )).buffer.asUint8List(),
     );
 
     progress.value = 0.2;
 
-    final sheet = excel["Data"];
+    final lastTables = {...excel.tables};
+    final sheet = lastTables["Data"]!;
 
     final totalProgress = list.fold(
       0,
@@ -57,7 +61,6 @@ class SaveExcelData {
           ),
     );
     int progressLocal = 0;
-
 
     for (var data in list) {
       for (final dateMap in data.quantityByHourAtDateList.entries) {
@@ -74,7 +77,7 @@ class SaveExcelData {
             TextCellValue(data.category!),
             TextCellValue(data.name ?? ''),
             TextCellValue(data.branchName ?? ''),
-            TextCellValue(DateFormat('EEEE','ar').format(dateMap.key!)),
+            TextCellValue(DateFormat('EEEE', 'ar').format(dateMap.key!)),
             DateCellValue.fromDateTime(dateMap.key!),
             IntCellValue(hourQuantityMap.key),
             IntCellValue(hourQuantityMap.value),
@@ -89,10 +92,20 @@ class SaveExcelData {
     }
 
     progress.value = 1;
-    final bytes = excel.encode();
-    print("$outputFilePath ----> 0");
-    final path = outputFilePath != null ? (await File(outputFilePath).writeAsBytes(bytes!).then((value) => value.path)) : await FilePicker.platform.saveFile(fileName: 'quantity_report.xlsx', bytes: Uint8List.fromList(bytes!));
-    // ;
+    excel.tables['Data'] = sheet;
+
+    // Save with calculation chain disabled
+    final bytes = excel.save();
+
+    final path = outputFilePath != null
+        ? (await File(
+            outputFilePath,
+          ).writeAsBytes(bytes!).then((value) => value.path))
+        : await FilePicker.platform.saveFile(
+            fileName: 'quantity_report.xlsx',
+            bytes: Uint8List.fromList(bytes!),
+          );
+
     await Future.delayed(const Duration(milliseconds: 300));
     progress.value = null;
     await openFile(path!);
