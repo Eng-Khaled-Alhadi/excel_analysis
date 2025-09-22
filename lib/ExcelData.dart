@@ -45,7 +45,7 @@ class SaveExcelData {
 
     progress.value = 0.2;
 
-    final sheet = excel.tables.values.first;
+    final sheet = excel["Data"];
 
     final totalProgress = list.fold(
       0,
