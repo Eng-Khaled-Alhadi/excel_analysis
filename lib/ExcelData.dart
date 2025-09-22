@@ -34,11 +34,13 @@ class SaveExcelData {
   SaveExcelData(this.list);
 
   void saveExcel() async {
-    final outFile = File('./output.xlsx');
+    // final outFile = File('./output.xlsx');
     progress.value = null;
 
+    final outputFilePath = prefs.getString(outFilePath);
+
     Excel excel = Excel.decodeBytes(
-      (await rootBundle.load('assets/table_save.xlsx')).buffer.asUint8List(),
+      outputFilePath != null ? await File(outputFilePath).readAsBytes() : (await rootBundle.load('assets/table_save.xlsx')).buffer.asUint8List(),
     );
 
     progress.value = 0.2;
@@ -88,8 +90,9 @@ class SaveExcelData {
 
     progress.value = 1;
     final bytes = excel.encode();
-    final path = await FilePicker.platform.saveFile(fileName: 'quantity_report.xlsx', bytes: Uint8List.fromList(bytes!));
-    // await outFile.writeAsBytes(bytes);
+    print("$outputFilePath ----> 0");
+    final path = outputFilePath != null ? (await File(outputFilePath).writeAsBytes(bytes!).then((value) => value.path)) : await FilePicker.platform.saveFile(fileName: 'quantity_report.xlsx', bytes: Uint8List.fromList(bytes!));
+    // ;
     await Future.delayed(const Duration(milliseconds: 300));
     progress.value = null;
     await openFile(path!);

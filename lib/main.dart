@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ExcelData.dart';
 
@@ -13,23 +14,49 @@ const int dateRowIndex = 1;
 const int nameColumnIndex = 0;
 
 ValueNotifier<double?> progress = ValueNotifier(null);
+const String outFilePath = 'output_file_path';
+const String inFilePath = 'input_file_path';
+
+late SharedPreferences prefs;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ar');
-  runApp(const MainApp());
+  prefs = await SharedPreferences.getInstance();
+  runApp( MainApp());
 }
 
 class MainApp extends StatelessWidget {
-  const MainApp({super.key});
+  MainApp({super.key});
+
+  late final TextEditingController controller = TextEditingController(text:prefs.getString(outFilePath) ?? '');
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        body: Center(
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text('File Output'),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller:  controller,
+                    ),
+                  ),
+                  IconButton(onPressed: (){
+                    FilePicker.platform.pickFiles().then((value){
+                      controller.text = value?.files.single.path ?? controller.text;
+                      prefs.setString(outFilePath, controller.text);
+                    });
+                  }, icon: Icon(Icons.file_upload_outlined))
+                ],
+              ),
+              SizedBox(height: 16,),
               Text('select file'),
               MaterialButton(
                 color: Colors.blue,
@@ -39,21 +66,26 @@ class MainApp extends StatelessWidget {
                 child: Text('open'),
               ),
               SizedBox(height: 16),
-              ValueListenableBuilder(
-                valueListenable: progress,
-                builder: (context, value, child) {
-                  return SizedBox(
-                    width: 300,
-                    child: Column(
-                      children: [
-                        LinearProgressIndicator(value: value),
-                        Text(
-                          "${value == null ? "--" : (value * 100).toStringAsFixed(2)}%",
+              Center(
+                child: ValueListenableBuilder(
+                  valueListenable: progress,
+                  builder: (context, value, child) {
+                    return Visibility(
+                      visible: value != null,
+                      child: SizedBox(
+                        width: 300,
+                        child: Column(
+                          children: [
+                            LinearProgressIndicator(value: value),
+                            Text(
+                              "${value == null ? "--" : (value * 100).toStringAsFixed(2)}%",
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ),

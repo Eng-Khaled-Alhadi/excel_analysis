@@ -15,6 +15,7 @@ dependencies:
   intl: ^0.20.2
 #  url_launcher:
   open_file: ^3.5.10
+  shared_preferences:
 
 dev_dependencies:
   flutter_test:
