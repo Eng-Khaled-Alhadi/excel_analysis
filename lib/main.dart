@@ -9,6 +9,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'ExcelData.dart';
@@ -34,9 +35,30 @@ late SharedPreferences prefs;
 // ============================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await initializeDateFormatting('ar');
-  prefs = await SharedPreferences.getInstance();
+
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    await initializeDateFormatting('ar');
+    prefs = await SharedPreferences.getInstance();
+
+    // تحميل المنتجات مرة واحدة عند البدء
+    FB.instance.products = await FB.fetchAllProducts();
+
+    // الاستماع للتحديثات
+    FB.instance.listenToProducts().listen(
+      (products) {
+        FB.instance.products = products;
+      },
+      onError: (error) {
+        debugPrint('خطأ في الاستماع للمنتجات: $error');
+      },
+    );
+  } catch (e) {
+    debugPrint('خطأ في تهيئة التطبيق: $e');
+  }
+
   runApp(const MainApp());
 }
 
@@ -336,11 +358,22 @@ class _HomePageState extends State<HomePage> {
                 Row(
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _importProductsFromExcel,
-                      icon: const Icon(Icons.file_download, size: 20),
-                      label: const Text(
-                        'استيراد المنتجات',
-                        style: TextStyle(fontSize: 16),
+                      onPressed: _loading ? null : _importProductsFromExcel,
+                      icon: _loading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : const Icon(Icons.file_download, size: 20),
+                      label: Text(
+                        _loading ? 'جاري الاستيراد...' : 'استيراد المنتجات',
+                        style: const TextStyle(fontSize: 16),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2196F3),
@@ -386,15 +419,7 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(height: 16),
             if (_addProductShow) _buildAddProductForm(),
             if (_addProductShow) const SizedBox(height: 16),
-            _loading
-                ? Column(
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(width: 10),
-                      Text('جاري استيراد المنتجات...'),
-                    ],
-                  )
-                : Expanded(child: _buildProductsTable()),
+            Expanded(child: _buildProductsTable()),
           ],
         ),
       ),
@@ -611,6 +636,18 @@ class _HomePageState extends State<HomePage> {
           );
         }
 
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Text(
+                'حدث خطأ: ${snapshot.error}',
+                style: const TextStyle(color: Colors.red, fontSize: 16),
+              ),
+            ),
+          );
+        }
+
         final products = snapshot.data ?? [];
         if (products.isEmpty) {
           return const Center(
@@ -763,22 +800,71 @@ class _HomePageState extends State<HomePage> {
   void _toggleAddProductBox({bool? value}) {
     setState(() {
       _addProductShow = value ?? !_addProductShow;
+      if (!_addProductShow) {
+        _nameController.clear();
+        _personsController.clear();
+        _selectedCategory = null;
+      }
     });
   }
 
   Future<void> _selectOutputFile() async {
-    final result = await FilePicker.platform.pickFiles();
-    if (result != null) {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+      dialogTitle: 'اختر ملف Excel للحفظ فيه',
+    );
+    if (result != null && result.files.single.path != null) {
+      final path = result.files.single.path!;
       setState(() {
-        _outputPathController.text = result.files.single.path ?? '';
-        prefs.setString(outFilePath, _outputPathController.text);
+        _outputPathController.text = path;
+        prefs.setString(outFilePath, path);
       });
+
+      // التحقق من صلاحية الملف
+      try {
+        if (await File(path).exists()) {
+          final bytes = await File(path).readAsBytes();
+          final excel = Excel.decodeBytes(bytes);
+
+          if (!excel.tables.containsKey('Data')) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text(
+                    'تحذير: الملف لا يحتوي على ورقة "Data". سيتم إنشاؤها تلقائياً.',
+                  ),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 3),
+                  action: SnackBarAction(
+                    label: 'حسناً',
+                    textColor: Colors.white,
+                    onPressed: () {},
+                  ),
+                ),
+              );
+            }
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('خطأ في قراءة الملف: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
   Future<void> _getData() async {
     progress.value = null;
-    final xFile = await FilePicker.platform.pickFiles();
+    final xFile = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xls'],
+    );
     if (xFile == null) return;
 
     try {
@@ -858,6 +944,7 @@ class _HomePageState extends State<HomePage> {
           const SnackBar(
             content: Text('تمت معالجة الملف بنجاح'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
           ),
         );
       }
@@ -868,9 +955,11 @@ class _HomePageState extends State<HomePage> {
           SnackBar(
             content: Text('حدث خطأ أثناء معالجة الملف: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
+      print('خطأ في معالجة الملف: $e');
     }
   }
 
@@ -878,32 +967,51 @@ class _HomePageState extends State<HomePage> {
   // Import Products from Excel
   // ============================================
   Future<void> _importProductsFromExcel() async {
+    if (_loading) return; // منع التشغيل المتعدد
+
     setState(() {
       _loading = true;
     });
+
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx', 'xls'],
+        dialogTitle: 'اختر ملف Excel للاستيراد',
       );
 
-      if (result == null) return;
+      if (result == null) {
+        setState(() {
+          _loading = false;
+        });
+        return;
+      }
 
-      // قراءة الملف
       final bytes =
           result.files.single.bytes ??
           await File(result.files.single.path!).readAsBytes();
 
       Excel excel = Excel.decodeBytes(bytes);
+
+      if (excel.tables.isEmpty) {
+        throw Exception('الملف لا يحتوي على أي أوراق');
+      }
+
       final sheet = excel.tables.values.first;
+
+      if (sheet.maxRows < 2) {
+        throw Exception('الملف لا يحتوي على بيانات');
+      }
 
       int successCount = 0;
       int errorCount = 0;
+      List<String> errors = [];
 
-      // البدء من الصف الثاني (تخطي الهيدر)
+      // جمع كل المنتجات أولاً
+      List<Product> productsToAdd = [];
+
       for (int rowIndex = 1; rowIndex < sheet.maxRows; rowIndex++) {
         try {
-          // قراءة البيانات من الأعمدة
           final categoryCell = sheet
               .cell(
                 CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex),
@@ -920,7 +1028,6 @@ class _HomePageState extends State<HomePage> {
               )
               .value;
 
-          // التحقق من أن البيانات ليست فارغة
           if (categoryCell == null || nameCell == null || partsCell == null) {
             continue;
           }
@@ -931,10 +1038,10 @@ class _HomePageState extends State<HomePage> {
 
           if (category.isEmpty || name.isEmpty || parts <= 0) {
             errorCount++;
+            errors.add('الصف ${rowIndex + 1}: بيانات غير صالحة');
             continue;
           }
 
-          // إضافة أو تحديث المنتج
           final product = Product(
             name: name,
             category: category,
@@ -942,40 +1049,83 @@ class _HomePageState extends State<HomePage> {
             id: '',
           );
 
-          await FB.addOrUpdateProduct(product);
-          successCount++;
+          productsToAdd.add(product);
         } catch (e) {
           errorCount++;
-          print('خطأ في الصف $rowIndex: $e');
+          errors.add('الصف ${rowIndex + 1}: $e');
+          debugPrint('خطأ في الصف $rowIndex: $e');
         }
       }
 
+      if (productsToAdd.isEmpty) {
+        throw Exception('لم يتم العثور على منتجات صالحة للاستيراد');
+      }
+
+      // الآن إضافة المنتجات واحداً تلو الآخر
+      for (int i = 0; i < productsToAdd.length; i++) {
+        try {
+          final product = productsToAdd[i];
+          await FB.addOrUpdateProduct(product);
+          successCount++;
+
+          // تحديث الكاش المحلي مباشرة
+          final existingIndex = FB.instance.products.indexWhere(
+            (p) => p.name == product.name,
+          );
+          if (existingIndex >= 0) {
+            FB.instance.products[existingIndex] = product;
+          } else {
+            FB.instance.products.add(product);
+          }
+
+          // تأخير صغير كل 5 منتجات
+          if (i % 5 == 0) {
+            await Future.delayed(const Duration(milliseconds: 100));
+          }
+        } catch (e) {
+          errorCount++;
+          errors.add('${productsToAdd[i].name}: $e');
+          debugPrint('خطأ في إضافة ${productsToAdd[i].name}: $e');
+        }
+      }
+
+      setState(() {
+        _loading = false;
+      });
+
       if (mounted) {
+        String message = 'تم استيراد $successCount منتج بنجاح';
+        if (errorCount > 0) {
+          message += '\nفشل $errorCount';
+          if (errors.isNotEmpty && errors.length <= 3) {
+            message += '\n${errors.take(3).join('\n')}';
+          }
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'تم استيراد $successCount منتج بنجاح${errorCount > 0 ? ' وفشل $errorCount' : ''}',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
+            content: Text(message),
+            backgroundColor: errorCount > 0 ? Colors.orange : Colors.green,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
     } catch (e) {
+      setState(() {
+        _loading = false;
+      });
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('حدث خطأ أثناء استيراد الملف: $e'),
+            content: Text('حدث خطأ أثناء استيراد الملف:\n$e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
-      print('خطأ في استيراد الملف: $e');
+      debugPrint('خطأ في استيراد الملف: $e');
     }
-
-    setState(() {
-      _loading = false;
-    });
   }
 
   void _onAddProductPressed() {
@@ -994,7 +1144,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     final persons = double.tryParse(personsText);
-    if (persons == null) {
+    if (persons == null || persons <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('قيمة النفر غير صحيحة'),
