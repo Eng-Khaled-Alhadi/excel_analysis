@@ -20,6 +20,10 @@ class ExcelData {
   Map<DateTime?, Map<int, int>> quantityByHourAtDateList =
       {}; // date : hour : quantity
 
+  // تحسين: استخدام الكاش المحلي بدلاً من البحث في القائمة في كل مرة
+  static final Map<String, String?> _categoryCache = {};
+  static final Map<String, num?> _totalQuantityCache = {};
+
   String? get category => getCategory(name ?? '');
 
   @override
@@ -29,10 +33,18 @@ class ExcelData {
 
   static String? getCategory(String productName) {
     try {
+      // التحقق من الكاش أولاً
+      if (_categoryCache.containsKey(productName)) {
+        return _categoryCache[productName];
+      }
+
       final product = FB.instance.products.firstWhereOrNull(
         (p) => p.name.trim() == productName.trim(),
       );
-      print('product: $product');
+
+      // حفظ في الكاش
+      _categoryCache[productName] = product?.category;
+
       return product?.category;
     } catch (e) {
       print('خطأ في getCategory: $e');
@@ -42,19 +54,40 @@ class ExcelData {
 
   static num? getTotalQuantity(String productName, int quantity) {
     try {
+      // إنشاء مفتاح كاش فريد
+      final cacheKey = '$productName-$quantity';
+
+      // التحقق من الكاش أولاً
+      if (_totalQuantityCache.containsKey(cacheKey)) {
+        return _totalQuantityCache[cacheKey];
+      }
+
       final product = FB.instance.products.firstWhereOrNull(
         (p) => p.name.trim() == productName.trim(),
       );
 
       if (product == null) {
         print('المنتج غير موجود: $productName');
+        _totalQuantityCache[cacheKey] = null;
         return null;
       }
-      return product.parts * quantity;
+
+      final result = product.parts * quantity;
+
+      // حفظ في الكاش
+      _totalQuantityCache[cacheKey] = result;
+
+      return result;
     } catch (e) {
       print('خطأ في getTotalQuantity: $e');
       return null;
     }
+  }
+
+  // دالة لمسح الكاش
+  static void clearCache() {
+    _categoryCache.clear();
+    _totalQuantityCache.clear();
   }
 }
 
@@ -124,6 +157,9 @@ class SaveExcelData {
       int skippedRows = 0;
       int addedRows = 0;
 
+      // تحسين: إعداد قائمة الصفوف مسبقاً ثم إضافتها دفعة واحدة
+      List<List<CellValue?>> rowsToAdd = [];
+
       for (var data in list) {
         // التحقق من البيانات الأساسية
         if (data.name == null || data.name!.isEmpty) {
@@ -152,8 +188,8 @@ class SaveExcelData {
                 continue;
               }
 
-              // إضافة الصف
-              sheet.appendRow([
+              // تحضير الصف للإضافة
+              rowsToAdd.add([
                 TextCellValue(category),
                 TextCellValue(data.name ?? ''),
                 TextCellValue(data.branchName ?? ''),
@@ -166,17 +202,24 @@ class SaveExcelData {
 
               addedRows++;
             } catch (e) {
-              print('خطأ في إضافة الصف: $e');
+              print('خطأ في تحضير الصف: $e');
               skippedRows++;
             }
 
             progressLocal++;
-            if (progressLocal % 10 == 0) {
+
+            // تحديث التقدم كل 50 صف بدلاً من 10 لتحسين الأداء
+            if (progressLocal % 50 == 0) {
               progress.value = (progressLocal / totalProgress);
               await Future.delayed(const Duration(microseconds: 1));
             }
           }
         }
+      }
+
+      // إضافة جميع الصفوف دفعة واحدة
+      for (var row in rowsToAdd) {
+        sheet.appendRow(row);
       }
 
       print('تمت إضافة $addedRows صف');
@@ -233,6 +276,9 @@ class SaveExcelData {
       print('تم حفظ الملف بنجاح: $savedPath');
 
       await openFile(savedPath);
+
+      // مسح الكاش بعد الانتهاء
+      ExcelData.clearCache();
     } catch (e) {
       progress.value = null;
       print('خطأ في saveExcel: $e');

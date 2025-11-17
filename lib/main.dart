@@ -123,12 +123,23 @@ class _HomePageState extends State<HomePage> {
   String? _selectedCategory;
   bool _loading = false;
 
+  // استخدام ValueNotifier بدلاً من setState لتحديث المنتجات فقط
+  final ValueNotifier<List<Product>> _productsNotifier = ValueNotifier([]);
+
   @override
   void initState() {
     super.initState();
     _outputPathController = TextEditingController(
       text: prefs.getString(outFilePath) ?? '',
     );
+
+    // تحميل المنتجات الأولية
+    _productsNotifier.value = FB.instance.products;
+
+    // الاستماع للتحديثات
+    FB.instance.listenToProducts().listen((products) {
+      _productsNotifier.value = products;
+    });
   }
 
   @override
@@ -136,6 +147,7 @@ class _HomePageState extends State<HomePage> {
     _outputPathController.dispose();
     _nameController.dispose();
     _personsController.dispose();
+    _productsNotifier.dispose();
     super.dispose();
   }
 
@@ -148,30 +160,7 @@ class _HomePageState extends State<HomePage> {
       textDirection: ui.TextDirection.rtl,
       child: Scaffold(
         backgroundColor: const Color(0xFFFFF8F5),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFFFF5722),
-          foregroundColor: Colors.white,
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'assets/images/Icon.png',
-                height: 100,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Icon(Icons.restaurant, size: 36);
-                },
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'إدارة المنتجات والملفات',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-              ),
-            ],
-          ),
-          centerTitle: true,
-          elevation: 4,
-        ),
+        appBar: _buildAppBar(),
         body: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
@@ -186,6 +175,36 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
+    );
+  }
+
+  // ============================================
+  // AppBar Widget
+  // ============================================
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: const Color(0xFFFF5722),
+      foregroundColor: Colors.white,
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
+            'assets/images/Icon.png',
+            height: 100,
+            errorBuilder: (context, error, stackTrace) {
+              return const Icon(Icons.restaurant, size: 36);
+            },
+          ),
+          const SizedBox(width: 12),
+          const Text(
+            'إدارة المنتجات والملفات',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+          ),
+        ],
+      ),
+      centerTitle: true,
+      elevation: 4,
     );
   }
 
@@ -535,7 +554,6 @@ class _HomePageState extends State<HomePage> {
                             ),
                           )
                           .toList(),
-
                       onChanged: (value) {
                         setState(() {
                           _selectedCategory = value;
@@ -615,36 +633,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   // ============================================
-  // Products Table Widget
+  // Products Table Widget - محسّن
   // ============================================
   Widget _buildProductsTable() {
-    return StreamBuilder<List<Product>>(
-      stream: FB.getProducts(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(20.0),
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF5722)),
-              ),
-            ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Text(
-                'حدث خطأ: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red, fontSize: 16),
-              ),
-            ),
-          );
-        }
-
-        final products = snapshot.data ?? [];
+    return ValueListenableBuilder<List<Product>>(
+      valueListenable: _productsNotifier,
+      builder: (context, products, child) {
         if (products.isEmpty) {
           return const Center(
             child: Padding(
@@ -704,82 +698,73 @@ class _HomePageState extends State<HomePage> {
                     DataColumn(label: Text('تعديل')),
                     DataColumn(label: Text('حذف')),
                   ],
-                  rows: products
-                      .asMap()
-                      .entries
-                      .map(
-                        (e) => DataRow(
-                          color: MaterialStateProperty.resolveWith<Color?>(
-                            (states) => e.key.isEven
-                                ? const Color(0xFFFFF8F5)
-                                : Colors.white,
+                  rows: List.generate(products.length, (index) {
+                    final product = products[index];
+                    return DataRow(
+                      color: MaterialStateProperty.resolveWith<Color?>(
+                        (states) => index.isEven
+                            ? const Color(0xFFFFF8F5)
+                            : Colors.white,
+                      ),
+                      cells: [
+                        DataCell(
+                          Text(
+                            (index + 1).toString(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
                           ),
-                          cells: [
-                            DataCell(
-                              Text(
-                                (e.key + 1).toString(),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                e.value.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                e.value.category,
-                                style: const TextStyle(fontSize: 15),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                e.value.parts.toString(),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              IconButton(
-                                onPressed: () {
-                                  _toggleAddProductBox(value: true);
-                                  _nameController.text = e.value.name;
-                                  _selectedCategory = e.value.category;
-                                  _personsController.text = e.value.parts
-                                      .toString();
-                                },
-                                icon: const Icon(
-                                  Icons.edit,
-                                  color: Color(0xFFFF5722),
-                                  size: 22,
-                                ),
-                                tooltip: 'تعديل',
-                              ),
-                            ),
-                            DataCell(
-                              IconButton(
-                                onPressed: () => _deleteProduct(e.value.id),
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.red,
-                                  size: 22,
-                                ),
-                                tooltip: 'حذف',
-                              ),
-                            ),
-                          ],
                         ),
-                      )
-                      .toList(),
+                        DataCell(
+                          Text(
+                            product.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            product.category,
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            product.parts.toString(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          IconButton(
+                            onPressed: () => _editProduct(product),
+                            icon: const Icon(
+                              Icons.edit,
+                              color: Color(0xFFFF5722),
+                              size: 22,
+                            ),
+                            tooltip: 'تعديل',
+                          ),
+                        ),
+                        DataCell(
+                          IconButton(
+                            onPressed: () => _deleteProduct(product.id),
+                            icon: const Icon(
+                              Icons.delete,
+                              color: Colors.red,
+                              size: 22,
+                            ),
+                            tooltip: 'حذف',
+                          ),
+                        ),
+                      ],
+                    );
+                  }),
                 ),
               ),
             ),
@@ -804,6 +789,15 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _editProduct(Product product) {
+    setState(() {
+      _addProductShow = true;
+      _nameController.text = product.name;
+      _selectedCategory = product.category;
+      _personsController.text = product.parts.toString();
+    });
+  }
+
   Future<void> _selectOutputFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -812,10 +806,8 @@ class _HomePageState extends State<HomePage> {
     );
     if (result != null && result.files.single.path != null) {
       final path = result.files.single.path!;
-      setState(() {
-        _outputPathController.text = path;
-        prefs.setString(outFilePath, path);
-      });
+      _outputPathController.text = path;
+      prefs.setString(outFilePath, path);
 
       // التحقق من صلاحية الملف
       try {
@@ -960,10 +952,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   // ============================================
-  // Import Products from Excel
+  // Import Products from Excel - محسّن
   // ============================================
   Future<void> _importProductsFromExcel() async {
-    if (_loading) return; // منع التشغيل المتعدد
+    if (_loading) return;
 
     setState(() {
       _loading = true;
@@ -1057,7 +1049,7 @@ class _HomePageState extends State<HomePage> {
         throw Exception('لم يتم العثور على منتجات صالحة للاستيراد');
       }
 
-      // الآن إضافة المنتجات واحداً تلو الآخر
+      // الآن إضافة المنتجات دفعة واحدة
       for (int i = 0; i < productsToAdd.length; i++) {
         try {
           final product = productsToAdd[i];
@@ -1074,9 +1066,9 @@ class _HomePageState extends State<HomePage> {
             FB.instance.products.add(product);
           }
 
-          // تأخير صغير كل 5 منتجات
-          if (i % 5 == 0) {
-            await Future.delayed(const Duration(milliseconds: 100));
+          // تأخير صغير كل 10 منتجات بدلاً من 5
+          if (i % 10 == 0 && i > 0) {
+            await Future.delayed(const Duration(milliseconds: 50));
           }
         } catch (e) {
           errorCount++;
@@ -1124,7 +1116,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _onAddProductPressed() {
+  void _onAddProductPressed() async {
     final name = _nameController.text.trim();
     final category = _selectedCategory;
     final personsText = _personsController.text.trim();
@@ -1157,31 +1149,44 @@ class _HomePageState extends State<HomePage> {
       id: '',
     );
 
-    FB
-        .addOrUpdateProduct(product)
-        .then((_) {
-          _nameController.clear();
-          _personsController.clear();
-          setState(() {
-            _selectedCategory = null;
-            _addProductShow = false;
-          });
+    try {
+      await FB.addOrUpdateProduct(product);
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('تمت إضافة/تحديث المنتج بنجاح'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        })
-        .catchError((error) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('حدث خطأ أثناء الإضافة: $error'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        });
+      // تحديث الكاش المحلي فوراً
+      final existingIndex = FB.instance.products.indexWhere(
+        (p) => p.name == product.name,
+      );
+      if (existingIndex >= 0) {
+        FB.instance.products[existingIndex] = product;
+      } else {
+        FB.instance.products.add(product);
+      }
+
+      _nameController.clear();
+      _personsController.clear();
+      setState(() {
+        _selectedCategory = null;
+        _addProductShow = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تمت إضافة/تحديث المنتج بنجاح'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('حدث خطأ أثناء الإضافة: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _deleteProduct(String productId) {
@@ -1196,15 +1201,33 @@ class _HomePageState extends State<HomePage> {
             child: const Text('إلغاء'),
           ),
           TextButton(
-            onPressed: () {
-              FB.deleteProduct(productId);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تم حذف المنتج'),
-                  backgroundColor: Colors.green,
-                ),
-              );
+            onPressed: () async {
+              try {
+                await FB.deleteProduct(productId);
+
+                // تحديث الكاش المحلي فوراً
+                FB.instance.products.removeWhere((p) => p.id == productId);
+
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم حذف المنتج'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('خطأ في الحذف: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             child: const Text('حذف', style: TextStyle(color: Colors.red)),
           ),

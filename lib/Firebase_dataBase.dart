@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 class FB {
   static final _collection = FirebaseFirestore.instance.collection('products');
 
+  // تحسين: استخدام الكاش بدلاً من استدعاء مستمر
   static Stream<List<Product>> getProducts() {
     return _collection.snapshots().map((snapshot) {
       return snapshot.docs.map((doc) {
@@ -39,11 +40,13 @@ class FB {
     });
   }
 
+  // تحسين: إضافة batch operations للإضافة المتعددة
   static Future<void> addOrUpdateProduct(Product product) async {
     try {
       // البحث عن منتج بنفس الاسم بشكل متزامن
       final querySnapshot = await _collection
           .where('name', isEqualTo: product.name)
+          .limit(1)
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
@@ -64,6 +67,50 @@ class FB {
     }
   }
 
+  // تحسين: إضافة batch operations
+  static Future<void> addOrUpdateProductsBatch(List<Product> products) async {
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      int operationCount = 0;
+
+      for (final product in products) {
+        final querySnapshot = await _collection
+            .where('name', isEqualTo: product.name)
+            .limit(1)
+            .get();
+
+        if (querySnapshot.docs.isNotEmpty) {
+          final docId = querySnapshot.docs.first.id;
+          batch.set(
+            _collection.doc(docId),
+            product.toJson(),
+            SetOptions(merge: true),
+          );
+        } else {
+          batch.set(_collection.doc(), product.toJson());
+        }
+
+        operationCount++;
+
+        // Firestore يسمح ب 500 عملية في الـ batch
+        if (operationCount >= 500) {
+          await batch.commit();
+          operationCount = 0;
+        }
+      }
+
+      // تنفيذ العمليات المتبقية
+      if (operationCount > 0) {
+        await batch.commit();
+      }
+
+      debugPrint('تم إضافة/تحديث ${products.length} منتج بنجاح');
+    } catch (e) {
+      debugPrint('خطأ في addOrUpdateProductsBatch: $e');
+      rethrow;
+    }
+  }
+
   static Future<void> deleteProduct(String? id) async {
     try {
       if (id == null || id.isEmpty) {
@@ -78,23 +125,42 @@ class FB {
     }
   }
 
-  // دالة للتحقق من وجود منتج
+  // دالة للتحقق من وجود منتج - محسّنة
   static Future<bool> productExists(String productName) async {
     try {
       final querySnapshot = await _collection
           .where('name', isEqualTo: productName)
           .limit(1)
+          .get(const GetOptions(source: Source.cache));
+
+      if (querySnapshot.docs.isNotEmpty) return true;
+
+      // إذا لم يوجد في الكاش، ابحث في السيرفر
+      final serverSnapshot = await _collection
+          .where('name', isEqualTo: productName)
+          .limit(1)
           .get();
-      return querySnapshot.docs.isNotEmpty;
+
+      return serverSnapshot.docs.isNotEmpty;
     } catch (e) {
       debugPrint('خطأ في productExists: $e');
       return false;
     }
   }
 
-  // دالة للحصول على منتج بالاسم
+  // دالة للحصول على منتج بالاسم - محسّنة
   static Future<Product?> getProductByName(String productName) async {
     try {
+      // البحث في الكاش أولاً
+      final cachedProduct = instance.products
+          .where((p) => p.name == productName)
+          .firstOrNull;
+
+      if (cachedProduct != null) {
+        return cachedProduct;
+      }
+
+      // إذا لم يوجد في الكاش، ابحث في Firebase
       final querySnapshot = await _collection
           .where('name', isEqualTo: productName)
           .limit(1)
@@ -114,15 +180,63 @@ class FB {
     }
   }
 
-  // دالة لجلب كل المنتجات مرة واحدة (بدون stream)
+  // دالة لجلب كل المنتجات مرة واحدة (بدون stream) - محسّنة
   static Future<List<Product>> fetchAllProducts() async {
     try {
+      // محاولة الحصول على البيانات من الكاش أولاً
+      final cachedSnapshot = await _collection.get(
+        const GetOptions(source: Source.cache),
+      );
+
+      if (cachedSnapshot.docs.isNotEmpty) {
+        debugPrint('تم تحميل ${cachedSnapshot.docs.length} منتج من الكاش');
+        return cachedSnapshot.docs.map((doc) {
+          return Product.fromJson(doc.data(), doc.id);
+        }).toList()..sort((a, b) => a.category.compareTo(b.category));
+      }
+
+      // إذا لم يوجد في الكاش، اجلب من السيرفر
       final snapshot = await _collection.get();
+      debugPrint('تم تحميل ${snapshot.docs.length} منتج من السيرفر');
+
       return snapshot.docs.map((doc) {
         return Product.fromJson(doc.data(), doc.id);
       }).toList()..sort((a, b) => a.category.compareTo(b.category));
     } catch (e) {
       debugPrint('خطأ في fetchAllProducts: $e');
+      return [];
+    }
+  }
+
+  // دالة لمسح الكاش
+  static Future<void> clearCache() async {
+    try {
+      await FirebaseFirestore.instance.clearPersistence();
+      debugPrint('تم مسح الكاش بنجاح');
+    } catch (e) {
+      debugPrint('خطأ في clearCache: $e');
+    }
+  }
+
+  // دالة لإعادة تحميل البيانات من السيرفر
+  static Future<List<Product>> reloadProducts() async {
+    try {
+      final snapshot = await _collection.get(
+        const GetOptions(source: Source.server),
+      );
+
+      final list = snapshot.docs.map((doc) {
+        return Product.fromJson(doc.data(), doc.id);
+      }).toList()..sort((a, b) => a.category.compareTo(b.category));
+
+      // تحديث الكاش المحلي
+      instance.products = list;
+      instance.categories = list.map((p) => p.category).toSet().toList();
+
+      debugPrint('تم إعادة تحميل ${list.length} منتج من السيرفر');
+      return list;
+    } catch (e) {
+      debugPrint('خطأ في reloadProducts: $e');
       return [];
     }
   }
