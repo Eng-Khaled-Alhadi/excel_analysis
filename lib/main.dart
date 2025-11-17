@@ -46,10 +46,19 @@ void main() async {
     // تحميل المنتجات مرة واحدة عند البدء
     FB.instance.products = await FB.fetchAllProducts();
 
+    FB.instance.categories = FB.instance.products
+        .map((p) => p.category)
+        .toSet()
+        .toList();
+
     // الاستماع للتحديثات
     FB.instance.listenToProducts().listen(
       (products) {
         FB.instance.products = products;
+        FB.instance.categories = FB.instance.products
+            .map((p) => p.category)
+            .toSet()
+            .toList();
       },
       onError: (error) {
         debugPrint('خطأ في الاستماع للمنتجات: $error');
@@ -518,28 +527,15 @@ class _HomePageState extends State<HomePage> {
                         'اختر التصنيف',
                         style: TextStyle(fontSize: 15),
                       ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'الدجاج الباربكيو',
-                          child: Text('الدجاج الباربكيو'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'الدجاج الشواية',
-                          child: Text('الدجاج الشواية'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'الدجاج المندي',
-                          child: Text('الدجاج المندي'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'اللحم الزبدة',
-                          child: Text('اللحم الزبدة'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'اللحم المندي',
-                          child: Text('اللحم المندي'),
-                        ),
-                      ],
+                      items: FB.instance.categories
+                          .map(
+                            (category) => DropdownMenuItem<String>(
+                              value: category,
+                              child: Text(category),
+                            ),
+                          )
+                          .toList(),
+
                       onChanged: (value) {
                         setState(() {
                           _selectedCategory = value;

@@ -18,6 +18,7 @@ class FB {
   FB._internal();
 
   List<Product> products = [];
+  List<String> categories = [];
 
   Stream<List<Product>> listenToProducts() {
     return FirebaseFirestore.instance.collection('products').snapshots().map((
@@ -31,6 +32,8 @@ class FB {
 
       // تحديث الكاش
       products = list;
+
+      categories = list.map((product) => product.category).toSet().toList();
 
       return list;
     });
